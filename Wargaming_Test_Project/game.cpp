@@ -1,198 +1,267 @@
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
+#include <map>
 
-const int SPACE_BETWEEN_TILES = 8;
+const int PIXEL_SIZE = 1;
+const int FIRST_BORDER = 1;
+const int BORDER_SIZE = 8;
 const int TILE_SIZE = 128;
 const int TILE_ROW_COLUMN_COUNT = 5;
 const int TILE_COUNT = 25;
+const int PLAYGROUND_IMAGE_COUNT = 1;
+const int SELECTION_IMAGE_COUNT = 1;
+const int WINDOW_HEIGTH = 688;
 const int WINDOW_WIDTH = 688;
 const int DESELECTED_TILE = -1;
 const int EMPTY_TILE = -1;
+const int TILE_MOVEMENT_LEFT = -1;
+const int TILE_MOVEMENT_RIGHT = 1;
+const int TILE_MOVEMENT_UP = -TILE_ROW_COLUMN_COUNT;
+const int TILE_MOVEMENT_DOWN = TILE_ROW_COLUMN_COUNT;
 const int FORBIDDEN_MOVEMENT_LEFT = 0;
 const int FORBIDDEN_MOVEMENT_RIGHT = 4;
 
-const int COLUMN_X = 0;
-const int COLUMN_Y = 2;
-const int COLUMN_Z = 4;
+const int COLUMN_GLYPH1 = 0;
+const int COLUMN_GLYPH2 = 2;
+const int COLUMN_GLYPH3 = 4;
+
+const int SELECT = olc::Mouse::LEFT;
+const int DESELECT = olc::Mouse::RIGHT;
+const olc::Key EXIT_GAME = olc::ESCAPE;
+
+const std::string GAME_NAME = "Master of Glyphs";
+
+const std::string PLAYGROUND_IMAGE = "resources\\playingGround.png";
+const std::string SELECTION_IMAGE = "resources\\selection.png";
+const std::string EMPTY_IMAGE = "resources\\empty.png";
+const std::string BLOCK_IMAGE = "resources\\block.png";
+const std::string GLYPH_1_IMAGE = "resources\\glyph1.png";
+const std::string GLYPH_2_IMAGE = "resources\\glyph2.png";
+const std::string GLYPH_3_IMAGE = "resources\\glyph3.png";
 
 enum TileType {
-    Block,
-    X,
-    Y,
-    Z
+    EMPTY,
+    BLOCK,
+    GLYPH_1,
+    GLYPH_2,
+    GLYPH_3
 };
 
-enum TileDirection {
-    Up = -5,
-    Down = 5,
-    Left = -1,
-    Right = 1
+std::map<TileType, std::string> tileImages = {
+    {TileType::EMPTY, EMPTY_IMAGE},
+    {TileType::BLOCK, BLOCK_IMAGE},
+    {TileType::GLYPH_1, GLYPH_1_IMAGE}, // *
+    {TileType::GLYPH_2, GLYPH_2_IMAGE},
+    {TileType::GLYPH_3, GLYPH_3_IMAGE}
+};
+
+enum TileMoveDirection {
+    UP = TILE_MOVEMENT_UP,
+    DOWN = TILE_MOVEMENT_DOWN,
+    LEFT = TILE_MOVEMENT_LEFT,
+    RIGHT = TILE_MOVEMENT_RIGHT
+};
+
+class Location {
+public:
+    int xCoord;
+    int yCoord;
+
+    Location() {
+        xCoord = 0;
+        yCoord = 0;
+    }
+
+    Location(int x, int y) {
+        xCoord = x;
+        yCoord = y;
+    }
+
+    ~Location() {}
+
+    olc::vf2d getOlcCoordsFloat() {
+        return olc::vf2d{(float)xCoord, (float)yCoord};
+    }
+
+    void setLocation(Location *newLocation) {
+        this->xCoord = newLocation->xCoord;
+        this->yCoord = newLocation->yCoord;
+    }
+};
+
+class MouseClick {
+public:
+    Location *location;
+    int buttonPressed;
+
+    MouseClick(int xCoord, int yCoord, int buttonPressed) {
+        location = new Location(xCoord, yCoord);
+        this->buttonPressed = buttonPressed;
+    }
+
+    ~MouseClick() {
+        delete location;
+    }
+};
+
+class DrawObject {
+public:
+    olc::Sprite *sprite;
+    olc::Decal *decal;
+
+    DrawObject(std::string image) {
+        sprite = new olc::Sprite(image);
+        decal = new olc::Decal(sprite);
+    }
+
+    ~DrawObject() {
+        delete decal;
+        delete sprite;
+    }
+};
+
+class DrawPack {
+public:
+    DrawObject *drawObject;
+    Location *location;
+
+    DrawPack(DrawObject *drawObject, Location *location) {
+        this->drawObject = drawObject;
+        this->location = location;
+    }
+
+    ~DrawPack() {
+        drawObject = nullptr;
+        location = nullptr;
+    }
 };
 
 class Tile {
 public:
-    olc::Sprite *mainSprite = nullptr;
-    olc::Decal *mainDecal = nullptr;
     TileType type;
 
-    Tile(TileType type) {
+    Location *location;
+    DrawObject *appearance;
+
+    Tile(TileType type, Location *location = new Location(0, 0)) {
+        this->location = location;
         this->type = type;
 
-        switch(type) {
-        case TileType::Block:
-            mainSprite = new olc::Sprite("resources\\block.png");
-            break;
-        case TileType::X:
-            mainSprite = new olc::Sprite("resources\\xTile.png");
-            break;
-        case TileType::Y:
-            mainSprite = new olc::Sprite("resources\\yTile.png");
-            break;
-        case TileType::Z:
-            mainSprite = new olc::Sprite("resources\\zTile.png");
-            break;
-        default:
-            break;
-        }
+        appearance = new DrawObject(tileImages[type]);
+    }
 
-        if (mainSprite != nullptr) {
-            mainDecal = new olc::Decal(mainSprite);
-        }
+    ~Tile() {
+        delete location;
+        delete appearance;
+    }
+
+    void changeLocation(Location *newLocation) {
+        delete location;
+        location = newLocation;
+    }
+
+    void swapLocation(Tile *targetTile) {
+        Location *tempLocation = targetTile->location;
+        targetTile->location = this->location;
+        this->location = tempLocation;
+    }
+
+    bool isGlyph() {
+        return type == TileType::GLYPH_1 ||
+               type == TileType::GLYPH_2 ||
+               type == TileType::GLYPH_3;
     }
 };
 
 class PlayGround {
 public:
-    olc::Sprite *mainSprite;
-    olc::Sprite *selectedTileSprite;
-    olc::Decal *mainDecal;
-    olc::Decal *selectedTileDecal;
+    Location *location;
+    DrawObject *appearance;
+    DrawObject *selection;
+    Tile *selectedTile;
+    int selectedTileNumber;
     Tile **tiles;
 
-    PlayGround() {
-        mainSprite = new olc::Sprite("resources\\playingGround.png");
-        mainDecal = new olc::Decal(mainSprite);
-        selectedTileSprite = new olc::Sprite("resources\\selection.png");
-        selectedTileDecal = new olc::Decal(selectedTileSprite);
+    PlayGround(Location *location = new Location(0, 0)) {
+        this->location = location;
+        appearance = new DrawObject(PLAYGROUND_IMAGE);
+        selection = new DrawObject(SELECTION_IMAGE);
         tiles = new Tile*[TILE_COUNT];
+        selectedTile = nullptr;
+
+        tempHardcodedPlayGroundFill();
+        setTileCoords();
+    }
+
+    ~PlayGround() {
         emptyPlayGround();
+        delete appearance;
+        delete selection;
+        delete tiles;
     }
 
     void emptyPlayGround() {
         for (int tileNumber = 0; tileNumber < TILE_COUNT; tileNumber++) {
-            tiles[tileNumber] = nullptr;
+            delete tiles[tileNumber];
         }
     }
-};
 
-class TheGame : public olc::PixelGameEngine {
-    const int select = olc::Mouse::LEFT;
-    const int deselect = olc::Mouse::RIGHT;
-    PlayGround *playGround;
-    Tile *selectedTile;
-    int selectedTileNumber;
-    int xCoords[TILE_COUNT];
-    int yCoords[TILE_COUNT];
-public:
-    bool OnUserCreate() override {
-        SetPixelMode(olc::Pixel::ALPHA);
-        setTileCoords();
-        deselectTile();
-        playGround = new PlayGround();
-        sAppName = "Test Project";
-        tempHardcodedPlayGroundFill();
-        return true;
-    }
+    bool getTile(Location *clickLocation, Tile *&targetTile, int &targetTileNumber) {
+        for (int tileNumber = 0; tileNumber < TILE_COUNT; tileNumber++) {
+            if (checkCollision(clickLocation, tiles[tileNumber]->location)) {
+                targetTile = tiles[tileNumber];
+                targetTileNumber = tileNumber;
 
-    bool OnUserUpdate(float elapsedTime) override {
-        drawGame();
-
-        if (GetKey(olc::ESCAPE).bPressed) {
-            return false;
-        }
-
-        if (GetMouse(deselect).bPressed) {
-            deselectTile();
-        }
-
-        if (GetMouse(select).bPressed) {
-            if (tileSelected()) {
-                Tile *targetTile = nullptr;
-                int targetTileNumber = EMPTY_TILE;
-                getTile(GetMouseX(), GetMouseY(), targetTile, targetTileNumber);
-                if (targetTile == nullptr && adjacentTileCheck(targetTileNumber)) {
-                    playGround->tiles[targetTileNumber] = playGround->tiles[selectedTileNumber];
-                    playGround->tiles[selectedTileNumber] = nullptr;
-                    selectedTileNumber = targetTileNumber;
-                    if (winCheck()) {
-                        std::cout << "You have won!" << std::endl;
-                        std::cout << "Press Escape to exit" << std::endl;
-                        deselectTile();
-                        playGround->emptyPlayGround();
-                    }
-                }
-            }
-            else {
-                Tile *targetTile = nullptr;
-                int targetTileNumber = EMPTY_TILE;
-                getTile(GetMouseX(), GetMouseY(), targetTile, targetTileNumber);
-                if (targetTile != nullptr) {
-                    if (targetTile->type != TileType::Block) {
-                        selectedTile = targetTile;
-                        selectedTileNumber = targetTileNumber;
-                    }
-                }
+                return true;
             }
         }
-        return true;
+        targetTile = nullptr;
+        targetTileNumber = DESELECTED_TILE;
+
+        return false;
     }
 
-    bool OnUserDestroy() {
-        return true;
+    bool checkAxisCollision(int targetCoord, int probableLocation) {
+        return probableLocation <= targetCoord && targetCoord <= probableLocation + TILE_SIZE;
+    }
+
+    bool checkCollision(Location *clickLocation, Location *tileLocation) {
+        return checkAxisCollision(clickLocation->xCoord, tileLocation->xCoord) &&
+               checkAxisCollision(clickLocation->yCoord, tileLocation->yCoord);
     }
 
     void setTileCoords() {
-        int current_tile_index = 0;
+        int currentTileIndex = 0;
 
-        for (int yTile = 0; yTile < TILE_ROW_COLUMN_COUNT; yTile++) {
-            for (int xTile = 0; xTile < TILE_ROW_COLUMN_COUNT; xTile++) {
-                current_tile_index = xTile + yTile * TILE_ROW_COLUMN_COUNT;
-                xCoords[current_tile_index] = SPACE_BETWEEN_TILES * (1 + xTile) + TILE_SIZE * xTile; // *
-                yCoords[current_tile_index] = SPACE_BETWEEN_TILES * (1 + yTile) + TILE_SIZE * yTile; // *
+        for (int placeInColumn = 0; placeInColumn < TILE_ROW_COLUMN_COUNT; placeInColumn++) {
+            for (int placeInRow = 0; placeInRow < TILE_ROW_COLUMN_COUNT; placeInRow++) {
+                currentTileIndex = getTileIndex(placeInRow, placeInColumn);
+
+                tiles[currentTileIndex]->changeLocation(new Location(
+                    calculateCoord(placeInRow, location->xCoord),
+                    calculateCoord(placeInColumn, location->yCoord)
+                ));
             }
         }
     }
 
-    void drawGame() {
-        DrawDecal({0, 0}, playGround->mainDecal);
+    int getTileIndex(int placeInRow, int placeInColumn) {
+        return placeInRow + placeInColumn * TILE_ROW_COLUMN_COUNT;
+    }
 
-        for (int tileNumber = 0; tileNumber < TILE_COUNT; tileNumber++) {
-            if (playGround->tiles[tileNumber] != nullptr) {
-                DrawDecal(
-                    {(float)xCoords[tileNumber], (float)yCoords[tileNumber]},
-                    playGround->tiles[tileNumber]->mainDecal
-                );
-            }
-        }
-
-        if (tileSelected()) {
-            DrawDecal(
-                {(float)xCoords[selectedTileNumber], (float)yCoords[selectedTileNumber]},
-                playGround->selectedTileDecal
-            );
-        }
+    int calculateCoord(int placeInRowOrColumn, int playGroundCorrespondence) {
+        return (BORDER_SIZE * (FIRST_BORDER + placeInRowOrColumn) + TILE_SIZE * placeInRowOrColumn) + playGroundCorrespondence;
     }
 
     bool winCheck() {
-        return columnMatchCheck(TileType::X, COLUMN_X) &&
-               columnMatchCheck(TileType::Y, COLUMN_Y) &&
-               columnMatchCheck(TileType::Z, COLUMN_Z);
+        return columnMatchCheck(TileType::GLYPH_1, COLUMN_GLYPH1) &&
+               columnMatchCheck(TileType::GLYPH_2, COLUMN_GLYPH2) &&
+               columnMatchCheck(TileType::GLYPH_3, COLUMN_GLYPH3);
     }
 
     bool columnMatchCheck(TileType type, int columnNumber) {
         for (int columnTile = columnNumber; columnTile < TILE_COUNT; columnTile += TILE_ROW_COLUMN_COUNT) {
-            if (playGround->tiles[columnTile] == nullptr ||
-                playGround->tiles[columnTile]->type != type) {
+            if (tiles[columnTile]->type != type) {
                 return false;
             }
         }
@@ -200,26 +269,8 @@ public:
         return true;
     }
 
-    bool tileSelected() {
+    bool isTileSelected() {
         return selectedTile != nullptr;
-    }
-
-    bool getTile(int xCoord, int yCoord, Tile *&resultTile, int &resultTileNumber) {
-        for (int tileNumber = 0; tileNumber < TILE_COUNT; tileNumber++) {
-            if ((xCoords[tileNumber] <= xCoord && xCoord <= xCoords[tileNumber] + TILE_SIZE) &&
-                (yCoords[tileNumber] <= yCoord && yCoord <= yCoords[tileNumber] + TILE_SIZE)) {
-                if (playGround->tiles[tileNumber] == nullptr) {
-                    resultTile = nullptr;
-                    resultTileNumber = tileNumber;
-                    return false;
-                }
-
-                resultTile = playGround->tiles[tileNumber];
-                resultTileNumber = tileNumber;
-                return true;
-            }
-        }
-        return false;
     }
 
     void deselectTile() {
@@ -228,59 +279,204 @@ public:
     }
 
     bool adjacentTileCheck(int targetTileNumber) {
-        if (selectedTileNumber == targetTileNumber + TileDirection::Left) {
-            return forbiddenMovementCheck(targetTileNumber, TileDirection::Left);
+        if (selectedTileNumber == targetTileNumber + TileMoveDirection::LEFT) {
+            return forbiddenMovementCheck(targetTileNumber, TileMoveDirection::LEFT);
         }
 
-        if (selectedTileNumber == targetTileNumber + TileDirection::Right) {
-            return forbiddenMovementCheck(targetTileNumber, TileDirection::Right);
+        if (selectedTileNumber == targetTileNumber + TileMoveDirection::RIGHT) {
+            return forbiddenMovementCheck(targetTileNumber, TileMoveDirection::RIGHT);
         }
 
-        return selectedTileNumber == targetTileNumber + TileDirection::Up ||
-               selectedTileNumber == targetTileNumber + TileDirection::Down;
+        return selectedTileNumber == targetTileNumber + TileMoveDirection::UP ||
+               selectedTileNumber == targetTileNumber + TileMoveDirection::DOWN;
     }
 
-    bool forbiddenMovementCheck(int targetTileNumber, TileDirection direction) {
-        if (direction == TileDirection::Left) {
-            return !(targetTileNumber % TILE_ROW_COLUMN_COUNT == FORBIDDEN_MOVEMENT_LEFT);
+    bool forbiddenMovementCheck(int targetTileNumber, TileMoveDirection direction) {
+        if (direction == TileMoveDirection::LEFT) {
+            return calculateForbiddenMovement(targetTileNumber, FORBIDDEN_MOVEMENT_LEFT);
         }
 
-        if (direction == TileDirection::Right) {
-            return !(targetTileNumber % TILE_ROW_COLUMN_COUNT == FORBIDDEN_MOVEMENT_RIGHT);
+        if (direction == TileMoveDirection::RIGHT) {
+            return calculateForbiddenMovement(targetTileNumber, FORBIDDEN_MOVEMENT_RIGHT);
         }
-        
+
         return true;
     }
 
+    bool calculateForbiddenMovement(int target, int checkValue) {
+        return !(target % TILE_ROW_COLUMN_COUNT == checkValue);
+    }
+
+    void processClick(MouseClick *click) {
+        if (click->buttonPressed == DESELECT) {
+            deselectTile();
+
+            return;
+        }
+
+        Tile *targetTile;
+        int targetTileNumber;
+        getTile(click->location, targetTile, targetTileNumber);
+
+        if (targetTile == nullptr) {
+            return;
+        }
+
+        if (!isTileSelected() && targetTile->isGlyph()) {
+            selectedTile = targetTile;
+            selectedTileNumber = targetTileNumber;
+
+            return;
+        }
+
+        if (targetTile->type == TileType::EMPTY && adjacentTileCheck(targetTileNumber)) {
+            moveTile(targetTile, targetTileNumber);
+        }
+    }
+
+    void moveTile(Tile *targetTile, int targetTileNumber) {
+        tiles[selectedTileNumber] = targetTile;
+        tiles[targetTileNumber] = selectedTile;
+
+        selectedTile->swapLocation(targetTile);
+
+        selectedTileNumber = targetTileNumber;
+    }
+
+    DrawPack **collectDrawObjects(int &itemCount) {
+        itemCount = PLAYGROUND_IMAGE_COUNT + TILE_COUNT;
+        
+        if (isTileSelected()) {
+            itemCount += SELECTION_IMAGE_COUNT;
+        }
+
+        DrawPack **container = new DrawPack*[itemCount];
+        int itemIndex = 0;
+
+        container[itemIndex] = new DrawPack(appearance, location);
+        itemIndex++;
+
+        for (int tileIndex = 0; tileIndex < TILE_COUNT; tileIndex++, itemIndex++) {
+            container[itemIndex] = new DrawPack(tiles[tileIndex]->appearance, tiles[tileIndex]->location);
+        }
+
+        if (isTileSelected()) {
+            container[itemIndex] = new DrawPack(selection, selectedTile->location);
+        }
+
+        return container;
+    }
+
     void tempHardcodedPlayGroundFill() {
-        playGround->tiles[0] = new Tile(TileType::X);
-        playGround->tiles[1] = new Tile(TileType::Block);
-        playGround->tiles[2] = new Tile(TileType::Y);
-        playGround->tiles[3] = new Tile(TileType::Block);
-        playGround->tiles[4] = new Tile(TileType::Z);
-        playGround->tiles[5] = new Tile(TileType::Y);
-        playGround->tiles[7] = new Tile(TileType::X);
-        playGround->tiles[9] = new Tile(TileType::Z);
-        playGround->tiles[10] = new Tile(TileType::Z);
-        playGround->tiles[11] = new Tile(TileType::Block);
-        playGround->tiles[12] = new Tile(TileType::Z);
-        playGround->tiles[13] = new Tile(TileType::Block);
-        playGround->tiles[14] = new Tile(TileType::Y);
-        playGround->tiles[15] = new Tile(TileType::Y);
-        playGround->tiles[17] = new Tile(TileType::X);
-        playGround->tiles[19] = new Tile(TileType::Y);
-        playGround->tiles[20] = new Tile(TileType::Z);
-        playGround->tiles[21] = new Tile(TileType::Block);
-        playGround->tiles[22] = new Tile(TileType::X);
-        playGround->tiles[23] = new Tile(TileType::Block);
-        playGround->tiles[24] = new Tile(TileType::X);
+        tiles[0] = new Tile(TileType::GLYPH_1);
+        tiles[1] = new Tile(TileType::BLOCK);
+        tiles[2] = new Tile(TileType::GLYPH_2);
+        tiles[3] = new Tile(TileType::BLOCK);
+        tiles[4] = new Tile(TileType::GLYPH_3);
+        tiles[5] = new Tile(TileType::GLYPH_2);
+        tiles[6] = new Tile(TileType::EMPTY);
+        tiles[7] = new Tile(TileType::GLYPH_1);
+        tiles[8] = new Tile(TileType::EMPTY);
+        tiles[9] = new Tile(TileType::GLYPH_3);
+        tiles[10] = new Tile(TileType::GLYPH_3);
+        tiles[11] = new Tile(TileType::BLOCK);
+        tiles[12] = new Tile(TileType::GLYPH_3);
+        tiles[13] = new Tile(TileType::BLOCK);
+        tiles[14] = new Tile(TileType::GLYPH_2);
+        tiles[15] = new Tile(TileType::GLYPH_2);
+        tiles[16] = new Tile(TileType::EMPTY);
+        tiles[17] = new Tile(TileType::GLYPH_1);
+        tiles[18] = new Tile(TileType::EMPTY);
+        tiles[19] = new Tile(TileType::GLYPH_2);
+        tiles[20] = new Tile(TileType::GLYPH_3);
+        tiles[21] = new Tile(TileType::BLOCK);
+        tiles[22] = new Tile(TileType::GLYPH_1);
+        tiles[23] = new Tile(TileType::BLOCK);
+        tiles[24] = new Tile(TileType::GLYPH_1);
+    }
+};
+
+class TheGame : public olc::PixelGameEngine {
+    PlayGround *playGround;
+
+    MouseClick *currentClick;
+public:
+    bool OnUserCreate() override {
+        sAppName = GAME_NAME;
+        SetPixelMode(olc::Pixel::ALPHA);
+
+        playGround = new PlayGround();
+
+        return true;
+    }
+
+    bool OnUserUpdate(float elapsedTime) override {
+        drawGame();
+
+        if (GetKey(EXIT_GAME).bPressed) {
+            return false;
+        }
+
+        currentClick = caughtClick();
+
+        if (currentClick != nullptr) {
+            playGround->processClick(currentClick);
+            delete currentClick;
+
+            if (playGround->winCheck()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool OnUserDestroy() override {
+        delete playGround;
+
+        return true;
+    }
+
+    MouseClick *caughtClick() {
+        if (GetMouse(SELECT).bPressed) {
+            return new MouseClick(GetMouseX(), GetMouseY(), SELECT);
+        }
+
+        if (GetMouse(DESELECT).bPressed) {
+            return new MouseClick(GetMouseX(), GetMouseY(), DESELECT);
+        }
+
+        return nullptr;
+    }
+
+    void drawGame() {
+        int itemCount = 0;
+        DrawPack **toDraw = playGround->collectDrawObjects(itemCount);
+
+        for (int itemIndex = 0; itemIndex < itemCount; itemIndex++) {
+            DrawDecal(
+                toDraw[itemIndex]->location->getOlcCoordsFloat(),
+                toDraw[itemIndex]->drawObject->decal);
+        }
+
+        clearDrawPackArray(toDraw, itemCount);
+    }
+
+    void clearDrawPackArray(DrawPack **target, int size) {
+        for (int index = 0; index < size; index++) {
+            delete target[index];
+        }
+
+        delete target;
     }
 };
 
 int main() {
+    ::ShowWindow(::GetConsoleWindow(), SW_HIDE);
+
     TheGame game;
 
-    if (game.Construct(WINDOW_WIDTH, WINDOW_WIDTH, 1, 1)) { // *
+    if (game.Construct(WINDOW_WIDTH, WINDOW_HEIGTH, PIXEL_SIZE, PIXEL_SIZE)) { // *
         game.Start();
     }
 
